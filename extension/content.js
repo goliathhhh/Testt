@@ -13,9 +13,13 @@
     balance: 3000,
     leverage: 10,
     riskPct: 3,
+    slMode: "swing",
+    tpMode: "atr",
     atrPeriod: 14,
+    slAtrMult: 1.5,
     tpAtrMult: 3,
     swingLookback: 10,
+    structLookback: 30,
     rsiPeriod: 7,
     emaPeriod: 9,
     overbought: 70,
@@ -144,9 +148,15 @@
     setWrap.appendChild(numField("Плече, x", "leverage", 1, 1000, 1));
     setWrap.appendChild(numField("Ризик, %", "riskPct", 0.1, 100, 0.1));
     setWrap.appendChild(el("div", "mt5adv-sechead", "Рівні (авто, за ринком)"));
+    setWrap.appendChild(modeToggle("Stop-Loss", "slMode",
+      [{ v: "swing", label: "Свінг" }, { v: "atr", label: "ATR" }]));
+    setWrap.appendChild(modeToggle("Take-Profit", "tpMode",
+      [{ v: "atr", label: "ATR" }, { v: "structure", label: "Рівень" }]));
     setWrap.appendChild(numField("ATR період", "atrPeriod", 2, 100, 1));
+    setWrap.appendChild(numField("SL = × ATR", "slAtrMult", 0.3, 10, 0.1));
     setWrap.appendChild(numField("TP = × ATR", "tpAtrMult", 0.5, 10, 0.5));
     setWrap.appendChild(numField("Свінг, барів", "swingLookback", 3, 100, 1));
+    setWrap.appendChild(numField("Структура, барів", "structLookback", 5, 300, 1));
     bodyEl.appendChild(setWrap);
 
     // footer
@@ -189,6 +199,28 @@
     };
     row.appendChild(inp);
     return row;
+  }
+
+  function modeToggle(label, key, opts) {
+    const row = el("div", "mt5adv-field");
+    row.appendChild(el("span", "mt5adv-flabel", label));
+    const grp = el("div", "mt5adv-toggle");
+    opts.forEach((o) => {
+      const b = el("button", "mt5adv-chip mt5adv-modebtn", o.label);
+      b.dataset.key = key;
+      b.dataset.val = o.v;
+      if (cfg[key] === o.v) b.classList.add("active");
+      b.onclick = () => { cfg[key] = o.v; saveCfg(); updateModeButtons(); refresh(); };
+      grp.appendChild(b);
+    });
+    row.appendChild(grp);
+    return row;
+  }
+
+  function updateModeButtons() {
+    panel.querySelectorAll(".mt5adv-modebtn").forEach((b) => {
+      b.classList.toggle("active", cfg[b.dataset.key] === b.dataset.val);
+    });
   }
 
   function updateTFButtons() {
@@ -324,7 +356,7 @@
     card.appendChild(line("✅ Take-Profit", fmtPrice(sig.tpPrice) + "  (+" + sig.tpPct.toFixed(2) + "%)", "mt5adv-green"));
     card.appendChild(line("⚖️ RR (плаваючий)", "1:" + sig.rr));
     card.appendChild(el("div", "mt5adv-line mt5adv-dim",
-      "SL: свінг(" + cfg.swingLookback + ") + ATR · TP: " + sig.tpMult + "× ATR"));
+      "SL: " + sig.slBasis + " · TP: " + sig.tpBasis));
 
     const hr = el("div", "mt5adv-hr");
     card.appendChild(hr);

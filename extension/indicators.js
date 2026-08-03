@@ -115,36 +115,65 @@
       reason = `RSI ${rsi.toFixed(1)} < ${cfg.oversold} — перепродано`;
     }
 
-    // recent swing extremes over the lookback window
-    const window = candles.slice(-look);
+    // recent swing extremes (near) — used for the swing stop
+    const swWin = candles.slice(-look);
     let swingLow = Infinity, swingHigh = -Infinity;
-    for (const c of window) {
+    for (const c of swWin) {
       if (c.low < swingLow) swingLow = c.low;
       if (c.high > swingHigh) swingHigh = c.high;
     }
-
-    // volatility-adaptive stop bounds
-    const buffer = 0.25 * atr;
-    const slMin = 1.0 * atr;   // don't place the stop too tight
-    const slMax = 2.0 * atr;   // keep risk sane so RR stays healthy
-    const tpMult = cfg.tpAtrMult || 3.0;
-
-    let slPrice, tpPrice, slDist, tpDist, slFromLevel;
-    if (side === "LONG") {
-      const structural = swingLow - buffer;      // stop below the recent low
-      slDist = clamp(price - structural, slMin, slMax);
-      slPrice = price - slDist;
-      tpDist = tpMult * atr;
-      tpPrice = price + tpDist;
-      slFromLevel = swingLow;
-    } else {
-      const structural = swingHigh + buffer;     // stop above the recent high
-      slDist = clamp(structural - price, slMin, slMax);
-      slPrice = price + slDist;
-      tpDist = tpMult * atr;
-      tpPrice = price - tpDist;
-      slFromLevel = swingHigh;
+    // wider extremes (far) — used for a structural target
+    const structLook = cfg.structLookback || 30;
+    const stWin = candles.slice(-structLook);
+    let structLow = Infinity, structHigh = -Infinity;
+    for (const c of stWin) {
+      if (c.low < structLow) structLow = c.low;
+      if (c.high > structHigh) structHigh = c.high;
     }
+
+    const slMode = cfg.slMode || "swing"; // "swing" | "atr"
+    const tpMode = cfg.tpMode || "atr";   // "atr"   | "structure"
+    const slAtrMult = cfg.slAtrMult || 1.5;
+    const tpMult = cfg.tpAtrMult || 3.0;
+    const buffer = 0.25 * atr;
+    const slFloor = 1.0 * atr;  // don't place the swing stop too tight
+    const slCap = 2.0 * atr;    // keep swing-stop risk sane
+    const tpCap = 8.0 * atr;    // avoid an absurdly far structural target
+
+    let slDist, tpDist, slBasis, tpBasis, slFromLevel = null;
+
+    // ── Stop-Loss ──
+    if (slMode === "atr") {
+      slDist = slAtrMult * atr;
+      slBasis = slAtrMult + "× ATR";
+    } else { // swing
+      if (side === "LONG") {
+        slDist = clamp(price - (swingLow - buffer), slFloor, slCap);
+        slFromLevel = swingLow;
+      } else {
+        slDist = clamp((swingHigh + buffer) - price, slFloor, slCap);
+        slFromLevel = swingHigh;
+      }
+      slBasis = "свінг(" + look + ") + ATR";
+    }
+
+    // ── Take-Profit ──
+    if (tpMode === "structure") {
+      const dist = side === "LONG" ? structHigh - price : price - structLow;
+      if (dist >= 0.5 * atr) {
+        tpDist = Math.min(dist, tpCap);
+        tpBasis = "рівень(" + structLook + ")";
+      } else {
+        tpDist = tpMult * atr; // no room to structure -> volatility fallback
+        tpBasis = tpMult + "× ATR (запас)";
+      }
+    } else { // atr
+      tpDist = tpMult * atr;
+      tpBasis = tpMult + "× ATR";
+    }
+
+    const slPrice = side === "LONG" ? price - slDist : price + slDist;
+    const tpPrice = side === "LONG" ? price + tpDist : price - tpDist;
 
     const slPct = (slDist / price) * 100;
     const tpPct = (tpDist / price) * 100;
@@ -171,7 +200,8 @@
       tpPct,
       rr: +rr.toFixed(2),
       slFromLevel,
-      tpMult,
+      slBasis,
+      tpBasis,
       notional,
       margin,
       marginPct: bal ? (margin / bal) * 100 : 0,

@@ -95,6 +95,9 @@
 .mt5adv-settings { margin: 8px 0; font-size: 12px; }
 .mt5adv-settings summary { cursor: pointer; color: #b9c2ce; padding: 4px 0; }
 .mt5adv-sechead { color: #7a8494; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; margin: 8px 0 3px; }
+.mt5adv-toggle { display: flex; gap: 5px; }
+.mt5adv-modebtn { padding: 3px 10px; }
+.mt5adv-modebtn.active { background: #3d7bff; border-color: #3d7bff; color: #fff; font-weight: 700; }
 .mt5adv-field { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; }
 .mt5adv-flabel { color: #9aa4b2; }
 .mt5adv-num {
