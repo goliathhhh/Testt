@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MT5 Web Advisor — RSI/EMA сигнали",
+  "version": "1.0.0",
+  "description": "Підказує LONG/SHORT + Stop-Loss/Take-Profit поверх веб-термінала MetaTrader 5. Радить, а не торгує.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://query1.finance.yahoo.com/*",
+    "https://query2.finance.yahoo.com/*",
+    "https://api.binance.com/*",
+    "https://api.binance.us/*",
+    "https://stooq.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://web.metatrader.app/*",
+        "https://*.metatrader.app/*",
+        "https://web.metatrader.com/*",
+        "https://trade.mql5.com/*"
+      ],
+      "js": ["indicators.js", "content.js"],
+      "css": ["panel.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_title": "MT5 Web Advisor",
+    "default_popup": "popup.html"
+  }
+}

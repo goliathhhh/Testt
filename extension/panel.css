@@ -1,0 +1,108 @@
+/* MT5 Web Advisor — floating panel styles */
+.mt5adv-panel {
+  position: fixed;
+  top: 90px;
+  right: 20px;
+  width: 290px;
+  z-index: 2147483000;
+  background: #14171c;
+  color: #e8ecf1;
+  border: 1px solid #2a2f38;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  line-height: 1.35;
+  user-select: none;
+}
+.mt5adv-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 10px;
+  cursor: move;
+  background: #1b1f27;
+  border-radius: 12px 12px 0 0;
+  border-bottom: 1px solid #2a2f38;
+}
+.mt5adv-title { font-weight: 700; letter-spacing: .2px; }
+.mt5adv-spacer { flex: 1; }
+.mt5adv-icon {
+  width: 22px; height: 22px;
+  border: none; border-radius: 6px;
+  background: #262c36; color: #cbd3de;
+  cursor: pointer; font-size: 13px; line-height: 1;
+}
+.mt5adv-icon:hover { background: #333b47; }
+
+.mt5adv-body { padding: 10px; }
+.mt5adv-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.mt5adv-input {
+  flex: 1; min-width: 0;
+  background: #0f1216; color: #e8ecf1;
+  border: 1px solid #2a2f38; border-radius: 8px;
+  padding: 7px 9px; font-size: 13px; text-transform: uppercase;
+}
+.mt5adv-input:focus { outline: none; border-color: #3d7bff; }
+
+.mt5adv-btn {
+  border: 1px solid #2a2f38; border-radius: 8px;
+  background: #262c36; color: #e8ecf1;
+  padding: 7px 10px; cursor: pointer; font-size: 12px;
+}
+.mt5adv-btn:hover { background: #333b47; }
+.mt5adv-go { background: #3d7bff; border-color: #3d7bff; color: #fff; font-weight: 700; }
+.mt5adv-go:hover { background: #316bec; }
+
+.mt5adv-quick, .mt5adv-tf { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+.mt5adv-chip {
+  border: 1px solid #2a2f38; border-radius: 999px;
+  background: #1b1f27; color: #b9c2ce;
+  padding: 4px 9px; cursor: pointer; font-size: 11px;
+}
+.mt5adv-chip:hover { background: #262c36; color: #fff; }
+.mt5adv-tfbtn.active { background: #3d7bff; border-color: #3d7bff; color: #fff; font-weight: 700; }
+
+.mt5adv-result { margin: 6px 0; }
+.mt5adv-loading { text-align: center; padding: 16px 0; color: #9aa4b2; }
+.mt5adv-card {
+  background: #0f1216; border: 1px solid #2a2f38;
+  border-radius: 10px; padding: 10px;
+}
+.mt5adv-err { border-color: #5a2b2b; }
+.mt5adv-meta {
+  display: flex; justify-content: space-between;
+  font-size: 11px; color: #9aa4b2; margin-bottom: 6px;
+}
+.mt5adv-badge {
+  text-align: center; font-weight: 800; letter-spacing: .4px;
+  padding: 7px; border-radius: 8px; margin: 4px 0 8px;
+  font-size: 14px;
+}
+.mt5adv-long  { background: rgba(38, 166, 91, 0.18); color: #37d67a; border: 1px solid #2e8b57; }
+.mt5adv-short { background: rgba(214, 69, 69, 0.18); color: #ff6b6b; border: 1px solid #b34040; }
+.mt5adv-wait  { background: rgba(214, 179, 69, 0.16); color: #ffd166; border: 1px solid #8b7a2e; }
+
+.mt5adv-line { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+.mt5adv-k { color: #9aa4b2; }
+.mt5adv-v { color: #e8ecf1; font-variant-numeric: tabular-nums; text-align: right; }
+.mt5adv-strong { font-weight: 700; }
+.mt5adv-green { color: #37d67a; }
+.mt5adv-red { color: #ff6b6b; }
+.mt5adv-dim { color: #7a8494; font-size: 11px; }
+.mt5adv-hr { height: 1px; background: #2a2f38; margin: 7px 0; }
+
+.mt5adv-settings { margin: 8px 0; font-size: 12px; }
+.mt5adv-settings summary { cursor: pointer; color: #b9c2ce; padding: 4px 0; }
+.mt5adv-field { display: flex; align-items: center; justify-content: space-between; padding: 3px 0; }
+.mt5adv-flabel { color: #9aa4b2; }
+.mt5adv-num {
+  width: 90px; background: #0f1216; color: #e8ecf1;
+  border: 1px solid #2a2f38; border-radius: 6px; padding: 4px 7px;
+  font-size: 12px; text-align: right;
+}
+.mt5adv-num:focus { outline: none; border-color: #3d7bff; }
+
+.mt5adv-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.mt5adv-auto { display: flex; align-items: center; gap: 5px; font-size: 11px; color: #9aa4b2; cursor: pointer; }
+.mt5adv-disclaimer { margin-top: 8px; font-size: 10.5px; color: #7a8494; text-align: center; }
