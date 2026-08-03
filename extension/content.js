@@ -13,8 +13,9 @@
     balance: 3000,
     leverage: 10,
     riskPct: 3,
-    slPct: 1,
-    tpPct: 4,
+    atrPeriod: 14,
+    tpAtrMult: 3,
+    swingLookback: 10,
     rsiPeriod: 7,
     emaPeriod: 9,
     overbought: 70,
@@ -136,13 +137,16 @@
 
     // settings (collapsible)
     const setWrap = el("details", "mt5adv-settings");
-    const sum = el("summary", null, "⚙️ Налаштування ризику");
+    const sum = el("summary", null, "⚙️ Налаштування");
     setWrap.appendChild(sum);
+    setWrap.appendChild(el("div", "mt5adv-sechead", "Ризик і розмір"));
     setWrap.appendChild(numField("Баланс, $", "balance", 1, 1e9, 1));
     setWrap.appendChild(numField("Плече, x", "leverage", 1, 1000, 1));
     setWrap.appendChild(numField("Ризик, %", "riskPct", 0.1, 100, 0.1));
-    setWrap.appendChild(numField("Stop-Loss, %", "slPct", 0.1, 50, 0.1));
-    setWrap.appendChild(numField("Take-Profit, %", "tpPct", 0.1, 100, 0.1));
+    setWrap.appendChild(el("div", "mt5adv-sechead", "Рівні (авто, за ринком)"));
+    setWrap.appendChild(numField("ATR період", "atrPeriod", 2, 100, 1));
+    setWrap.appendChild(numField("TP = × ATR", "tpAtrMult", 0.5, 10, 0.5));
+    setWrap.appendChild(numField("Свінг, барів", "swingLookback", 3, 100, 1));
     bodyEl.appendChild(setWrap);
 
     // footer
@@ -161,7 +165,7 @@
     bodyEl.appendChild(footer);
 
     bodyEl.appendChild(el("div", "mt5adv-disclaimer",
-      "⚠️ Радить, не торгує. Рішення — за тобою."));
+      "💡 Підказка з аналізу ринку, не стратегія заробітку й не фінансова порада. Рівні SL/TP — орієнтовні, рахуються за волатильністю. Рішення — за тобою."));
 
     panel.appendChild(bodyEl);
     document.body.appendChild(panel);
@@ -297,6 +301,9 @@
     if (sig.rsi != null) {
       card.appendChild(line("RSI(" + cfg.rsiPeriod + ")", sig.rsi.toFixed(1) + "  " + rsiLabel(sig.rsi)));
     }
+    if (sig.atr != null) {
+      card.appendChild(line("ATR(" + cfg.atrPeriod + ")", fmtPrice(sig.atr) + "  (волатильність)"));
+    }
 
     if (sig.status === "blocked") {
       card.appendChild(el("div", "mt5adv-badge mt5adv-wait", "🚫 СИГНАЛ ЗАБЛОКОВАНО"));
@@ -306,24 +313,26 @@
       return;
     }
 
-    // actionable signal
+    // market bias hint (not an instruction to trade)
     const isLong = sig.side === "LONG";
     const badge = el("div", "mt5adv-badge " + (isLong ? "mt5adv-long" : "mt5adv-short"),
-      (isLong ? "📈 LONG" : "📉 SHORT"));
+      (isLong ? "📈 Ухил: LONG" : "📉 Ухил: SHORT"));
     card.appendChild(badge);
 
-    card.appendChild(line("🎯 Вхід", fmtPrice(sig.price), "mt5adv-strong"));
-    card.appendChild(line("🛑 Stop-Loss", fmtPrice(sig.slPrice) + "  (-" + sig.slPct + "%)", "mt5adv-red"));
-    card.appendChild(line("✅ Take-Profit", fmtPrice(sig.tpPrice) + "  (+" + sig.tpPct + "%)", "mt5adv-green"));
-    card.appendChild(line("⚖️ RR", "1:" + sig.rr));
+    card.appendChild(line("🎯 Орієнтир входу", fmtPrice(sig.price), "mt5adv-strong"));
+    card.appendChild(line("🛑 Stop-Loss", fmtPrice(sig.slPrice) + "  (-" + sig.slPct.toFixed(2) + "%)", "mt5adv-red"));
+    card.appendChild(line("✅ Take-Profit", fmtPrice(sig.tpPrice) + "  (+" + sig.tpPct.toFixed(2) + "%)", "mt5adv-green"));
+    card.appendChild(line("⚖️ RR (плаваючий)", "1:" + sig.rr));
+    card.appendChild(el("div", "mt5adv-line mt5adv-dim",
+      "SL: свінг(" + cfg.swingLookback + ") + ATR · TP: " + sig.tpMult + "× ATR"));
 
     const hr = el("div", "mt5adv-hr");
     card.appendChild(hr);
 
-    card.appendChild(line("💼 Позиція", money(sig.notional)));
+    card.appendChild(line("💼 Розмір позиції", money(sig.notional)));
     card.appendChild(line("⚙️ Маржа (" + sig.lev + "x)", money(sig.margin) + "  (" + Math.round(sig.marginPct) + "%)"));
-    card.appendChild(line("🔻 Ризик", money(sig.riskUsd)));
-    card.appendChild(line("🔺 Профіт (TP)", money(sig.profitUsd), "mt5adv-green"));
+    card.appendChild(line("🔻 Ризик на SL", money(sig.riskUsd)));
+    card.appendChild(line("🎯 Потенціал до TP", money(sig.profitUsd), "mt5adv-green"));
 
     if (!sig.afford) {
       card.appendChild(el("div", "mt5adv-line mt5adv-red",
