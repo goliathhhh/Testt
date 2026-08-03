@@ -10,6 +10,7 @@
   const DEFAULTS = {
     symbol: "EURUSD",
     timeframe: "M15",
+    autoSymbol: true,
     balance: 3000,
     leverage: 10,
     riskPct: 3,
@@ -35,7 +36,7 @@
   const QUICK = ["EURUSD", "GBPUSD", "USDJPY", "AUDCAD", "BTCUSD", "ETHUSD"];
 
   let cfg = Object.assign({}, DEFAULTS);
-  let panel, bodyEl, resultEl, symInput, refreshTimer = null, loading = false;
+  let panel, bodyEl, resultEl, symInput, autoBtn, refreshTimer = null, loading = false;
 
   // ── helpers ──────────────────────────────────────────────
   function fmtPrice(p) {
@@ -109,9 +110,13 @@
     symInput.onkeydown = (ev) => {
       if (ev.key === "Enter") setSymbol(symInput.value);
     };
+    autoBtn = el("button", "mt5adv-btn mt5adv-autobtn", "🎯");
+    autoBtn.title = "Авто: слідувати за символом графіка MT5";
+    autoBtn.onclick = () => toggleAuto();
     const goBtn = el("button", "mt5adv-btn mt5adv-go", "▶");
     goBtn.title = "Розрахувати";
     goBtn.onclick = () => setSymbol(symInput.value);
+    symRow.appendChild(autoBtn);
     symRow.appendChild(symInput);
     symRow.appendChild(goBtn);
     bodyEl.appendChild(symRow);
@@ -229,13 +234,56 @@
     });
   }
 
-  function setSymbol(sym) {
+  function setSymbol(sym, manual) {
+    if (manual === undefined) manual = true;
     const s = (sym || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
     if (!s) return;
     cfg.symbol = s;
     if (symInput) symInput.value = s;
+    if (manual) cfg.autoSymbol = false; // typing a symbol turns off auto-follow
     saveCfg();
+    updateAutoBtn();
     refresh();
+  }
+
+  // ── auto-detect the symbol from the MT5 chart (best effort) ──
+  function detectChartSymbol() {
+    const t = (document.title || "").toUpperCase();
+    // "AUDCAD,H1 …" / "AUDCAD, H1 …" — 6-letter ticker followed by a timeframe
+    let m = t.match(/\b([A-Z]{6})\b[ ,]*(?:M1|M5|M15|M30|H1|H4|D1|W1|MN)\b/);
+    if (m) return m[1];
+    m = t.match(/\b([A-Z]{3,10}(?:USDT|USD))\b/); // crypto / metals
+    if (m) return m[1];
+    m = t.match(/\b([A-Z]{6})\b/); // any bare 6-letter forex ticker
+    if (m) return m[1];
+    return null;
+  }
+  function updateAutoBtn() {
+    if (autoBtn) autoBtn.classList.toggle("active", !!cfg.autoSymbol);
+  }
+  function toggleAuto() {
+    cfg.autoSymbol = !cfg.autoSymbol;
+    saveCfg();
+    updateAutoBtn();
+    if (cfg.autoSymbol) {
+      const s = detectChartSymbol();
+      if (s && s !== cfg.symbol) {
+        cfg.symbol = s;
+        if (symInput) symInput.value = s;
+        saveCfg();
+      }
+      refresh();
+    }
+  }
+  function autoDetectTick() {
+    if (!cfg.autoSymbol) return;
+    const s = detectChartSymbol();
+    if (s && s !== cfg.symbol) {
+      cfg.symbol = s;
+      if (symInput) symInput.value = s;
+      saveCfg();
+      refresh();
+    }
   }
   function setTF(tf) {
     cfg.timeframe = tf;
@@ -314,7 +362,7 @@
 
     // header line: symbol + tf + source
     const meta = el("div", "mt5adv-meta");
-    meta.appendChild(el("span", null, cfg.symbol + " · " + cfg.timeframe));
+    meta.appendChild(el("span", null, (cfg.autoSymbol ? "🎯 " : "") + cfg.symbol + " · " + cfg.timeframe));
     meta.appendChild(el("span", "mt5adv-dim", source ? "джерело: " + source : ""));
     card.appendChild(meta);
 
@@ -415,6 +463,12 @@
   // ── init ─────────────────────────────────────────────────
   loadCfg().then(() => {
     buildPanel();
+    updateAutoBtn();
+    if (cfg.autoSymbol) {
+      const s = detectChartSymbol();
+      if (s) { cfg.symbol = s; if (symInput) symInput.value = s; }
+    }
     refresh();
+    setInterval(autoDetectTick, 2500); // follow chart symbol changes
   });
 })();

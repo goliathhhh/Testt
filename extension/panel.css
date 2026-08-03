@@ -53,6 +53,8 @@
 .mt5adv-btn:hover { background: #333b47; }
 .mt5adv-go { background: #3d7bff; border-color: #3d7bff; color: #fff; font-weight: 700; }
 .mt5adv-go:hover { background: #316bec; }
+.mt5adv-autobtn { padding: 7px 8px; opacity: .55; }
+.mt5adv-autobtn.active { background: #2e8b57; border-color: #2e8b57; color: #fff; opacity: 1; }
 
 .mt5adv-quick, .mt5adv-tf { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
 .mt5adv-chip {
