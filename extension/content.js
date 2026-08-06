@@ -16,6 +16,7 @@
     useAccountBalance: true,
     leverage: 10,
     riskPct: 3,
+    maxMarginPct: 30,
     atrPeriod: 14,
     pivotStrength: 2,
     autoRefresh: false,
@@ -49,6 +50,12 @@
     if (cls) e.className = cls;
     if (text != null) e.textContent = text;
     return e;
+  }
+  // rough lot estimate for 6-letter forex (1 standard lot = 100 000 base units)
+  function estLots(notional, price, symbol) {
+    const s = (symbol || "").toUpperCase();
+    if (/^[A-Z]{6}$/.test(s) && price > 0) return notional / (price * 100000);
+    return null; // crypto / CFD contract sizes vary — skip
   }
   function biasClass(b) { return b === "bull" ? "mt5adv-bull" : b === "bear" ? "mt5adv-short" : "mt5adv-neutral"; }
   function biasWord(b) { return b === "bull" ? "ВГОРУ" : b === "bear" ? "ВНИЗ" : "ЗМІШАНИЙ"; }
@@ -142,6 +149,7 @@
     setWrap.appendChild(numField("Баланс, $", "balance", 1, 1e9, 1));
     setWrap.appendChild(numField("Плече, x", "leverage", 1, 1000, 1));
     setWrap.appendChild(numField("Ризик, %", "riskPct", 0.1, 100, 0.1));
+    setWrap.appendChild(numField("Макс. маржа, %", "maxMarginPct", 1, 100, 1));
     setWrap.appendChild(el("div", "mt5adv-sechead", "Аналіз"));
     setWrap.appendChild(numField("ATR період", "atrPeriod", 2, 100, 1));
     setWrap.appendChild(numField("Свінги (сила)", "pivotStrength", 1, 10, 1));
@@ -349,12 +357,16 @@
     }
 
     card.appendChild(el("div", "mt5adv-hr"));
+    const lots = estLots(ex.notional, ex.price, cfg.symbol);
+    if (lots != null) card.appendChild(line("📦 Обсяг", "≈ " + lots.toFixed(2) + " лот"));
     card.appendChild(line("💼 Розмір позиції", money(ex.notional)));
     card.appendChild(line("⚙️ Маржа (" + ex.lev + "x)", money(ex.margin) + "  (" + Math.round(ex.marginPct) + "%)"));
-    card.appendChild(line("🔻 Ризик на SL", money(ex.riskUsd)));
+    card.appendChild(line("🔻 Ризик на SL", money(ex.riskUsd) + "  (" + ex.riskPctReal.toFixed(1) + "%)"));
     card.appendChild(line("🎯 Потенціал до TP1", money(ex.profitUsd), "mt5adv-green"));
+    if (ex.capped) card.appendChild(el("div", "mt5adv-line mt5adv-dim",
+      "ℹ️ Обсяг обмежено доступною маржею (стоп дуже вузький на цьому ТФ)."));
     if (!ex.afford) card.appendChild(el("div", "mt5adv-line mt5adv-red",
-      "⚠️ Маржа більша за баланс — зменш ризик або підвищ плече."));
+      "⚠️ Маржа завелика — постав плече як у брокера (напр. 100) або зменш ризик."));
 
     card.appendChild(el("div", "mt5adv-line mt5adv-dim", "Свічка: " + ex.candleTime));
     resultEl.appendChild(card);

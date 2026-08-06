@@ -221,13 +221,20 @@
     const rr1 = slDist > 0 ? Math.abs(tp1 - entry) / slDist : 0;
     const rr2 = slDist > 0 ? Math.abs(tp2 - entry) / slDist : 0;
 
-    // sizing
+    // sizing: risk-based, then capped so the position is actually affordable
     const bal = Math.max(cfg.balance, 0);
     const lev = cfg.leverage || 1;
-    const riskUsd = bal * (cfg.riskPct / 100);
-    const notional = slPct > 0 ? riskUsd / (slPct / 100) : 0;
+    const targetRisk = bal * (cfg.riskPct / 100);
+    let notional = slPct > 0 ? targetRisk / (slPct / 100) : 0;
+    // never use more than maxMarginPct% of the balance as margin
+    const maxMarginPct = cfg.maxMarginPct || 30;
+    const maxNotional = bal * lev * (maxMarginPct / 100);
+    let capped = false;
+    if (maxNotional > 0 && notional > maxNotional) { notional = maxNotional; capped = true; }
     const margin = lev ? notional / lev : notional;
+    const riskUsd = notional * (slPct / 100);      // actual $ risk after the cap
     const profitUsd = notional * (tp1Pct / 100);
+    const riskPctReal = bal ? (riskUsd / bal) * 100 : 0;
 
     return {
       mtf, overall,
@@ -241,7 +248,7 @@
         rr1: +rr1.toFixed(2), rr2: +rr2.toFixed(2),
         reasons,
         notional, margin, marginPct: bal ? (margin / bal) * 100 : 0, lev,
-        riskUsd, profitUsd, balance: bal, afford: margin <= bal,
+        riskUsd, profitUsd, riskPctReal, capped, balance: bal, afford: margin <= bal,
         candleTime: new Date(c[c.length - 1].ts).toLocaleString(),
       },
     };
