@@ -183,11 +183,69 @@ async function fetchCandles(symbol, timeframe) {
   throw new Error(errors.join(" · ") || "Джерела даних недоступні");
 }
 
+// group N consecutive candles into one (for H4 / W1 built from H1 / D1)
+function aggregate(candles, factor) {
+  if (!candles || factor <= 1) return candles;
+  const out = [];
+  const start = candles.length % factor;
+  for (let i = start; i + factor <= candles.length; i += factor) {
+    const grp = candles.slice(i, i + factor);
+    let hi = -Infinity, lo = Infinity;
+    for (const c of grp) { if (c.high > hi) hi = c.high; if (c.low < lo) lo = c.low; }
+    out.push({ ts: grp[0].ts, open: grp[0].open, high: hi, low: lo, close: grp[grp.length - 1].close });
+  }
+  return out;
+}
+
+// fetch a multi-timeframe bundle: M15, H1, H4, D1, W1
+async function fetchMTF(symbol) {
+  const crypto = isCrypto(symbol);
+  const results = await Promise.allSettled([
+    fetchCandles(symbol, "M15"),
+    fetchCandles(symbol, "H1"),
+    fetchCandles(symbol, "D1"),
+  ]);
+  const get = (r) => (r.status === "fulfilled" ? r.value : null);
+  const m15 = get(results[0]);
+  const h1 = get(results[1]);
+  const d1 = get(results[2]);
+
+  const byTF = {};
+  let source = null;
+  if (m15) { byTF.M15 = m15.candles; source = source || m15.source; }
+  if (h1) {
+    byTF.H1 = h1.candles;
+    byTF.H4 = aggregate(h1.candles, 4);
+    source = source || h1.source;
+  }
+  if (d1) {
+    byTF.D1 = d1.candles;
+    byTF.W1 = aggregate(d1.candles, 5);
+    source = source || d1.source;
+  }
+  // crypto has a native 4h — prefer it over the aggregate
+  if (crypto) {
+    try { byTF.H4 = (await fetchCandles(symbol, "H4")).candles; } catch (e) {}
+  }
+
+  if (!Object.keys(byTF).length) {
+    const errs = results.map((r) => (r.status === "rejected" ? String(r.reason && r.reason.message || r.reason) : "")).filter(Boolean);
+    throw new Error(errs.join(" · ") || "Немає даних для аналізу");
+  }
+  return { byTF, source };
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg && msg.type === "fetchCandles") {
     fetchCandles(msg.symbol, msg.timeframe)
       .then((res) => sendResponse(res))
       .catch((e) => sendResponse({ error: String(e.message || e) }));
     return true; // keep the message channel open for async response
+  }
+  if (msg && msg.type === "fetchMTF") {
+    fetchMTF(msg.symbol)
+      .then((res) => sendResponse(res))
+      .catch((e) => sendResponse({ error: String(e.message || e) }));
+    return true;
   }
 });

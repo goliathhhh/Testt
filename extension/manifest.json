@@ -20,7 +20,7 @@
         "https://web.metatrader.com/*",
         "https://trade.mql5.com/*"
       ],
-      "js": ["indicators.js", "content.js"],
+      "js": ["indicators.js", "smc.js", "content.js"],
       "css": ["panel.css"],
       "run_at": "document_idle"
     }
