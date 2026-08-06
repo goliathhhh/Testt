@@ -197,8 +197,8 @@ function aggregate(candles, factor) {
   return out;
 }
 
-// fetch a multi-timeframe bundle: M15, H1, H4, D1, W1
-async function fetchMTF(symbol) {
+// fetch a multi-timeframe bundle: M15, H1, H4, D1, W1 (+ the execution TF)
+async function fetchMTF(symbol, execTF) {
   const crypto = isCrypto(symbol);
   const results = await Promise.allSettled([
     fetchCandles(symbol, "M15"),
@@ -228,6 +228,15 @@ async function fetchMTF(symbol) {
     try { byTF.H4 = (await fetchCandles(symbol, "H4")).candles; } catch (e) {}
   }
 
+  // ensure the chosen execution timeframe is present (e.g. M1 / M5 / M30)
+  if (execTF && !byTF[execTF]) {
+    try {
+      const ex = await fetchCandles(symbol, execTF);
+      byTF[execTF] = ex.candles;
+      source = source || ex.source;
+    } catch (e) {}
+  }
+
   if (!Object.keys(byTF).length) {
     const errs = results.map((r) => (r.status === "rejected" ? String(r.reason && r.reason.message || r.reason) : "")).filter(Boolean);
     throw new Error(errs.join(" · ") || "Немає даних для аналізу");
@@ -243,7 +252,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // keep the message channel open for async response
   }
   if (msg && msg.type === "fetchMTF") {
-    fetchMTF(msg.symbol)
+    fetchMTF(msg.symbol, msg.execTF)
       .then((res) => sendResponse(res))
       .catch((e) => sendResponse({ error: String(e.message || e) }));
     return true;

@@ -4,6 +4,9 @@
   top: 90px;
   right: 20px;
   width: 290px;
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
   z-index: 2147483000;
   background: #14171c;
   color: #e8ecf1;
@@ -15,6 +18,8 @@
   line-height: 1.35;
   user-select: none;
 }
+.mt5adv-header { flex: 0 0 auto; }
+.mt5adv-body { flex: 1 1 auto; overflow-y: auto; }
 .mt5adv-header {
   display: flex;
   align-items: center;
@@ -64,6 +69,15 @@
 }
 .mt5adv-chip:hover { background: #262c36; color: #fff; }
 .mt5adv-tfbtn.active { background: #3d7bff; border-color: #3d7bff; color: #fff; font-weight: 700; }
+
+/* account block */
+.mt5adv-acctwrap { margin: 4px 0; }
+.mt5adv-acct { background: #0f1216; border: 1px solid #2a2f38; border-radius: 10px; padding: 8px; }
+.mt5adv-acctnote { font-size: 10.5px; color: #7a8494; padding: 2px 0; }
+.mt5adv-posrow { display: flex; align-items: center; gap: 6px; font-size: 11px; padding: 2px 0; }
+.mt5adv-pos-buy { color: #37d67a; font-weight: 700; }
+.mt5adv-pos-sell { color: #ff6b6b; font-weight: 700; }
+.mt5adv-poshint { margin-left: auto; color: #9aa4b2; }
 
 /* multi-timeframe strip */
 .mt5adv-mtf { margin: 4px 0 6px; }

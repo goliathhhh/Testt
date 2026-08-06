@@ -13,6 +13,7 @@
     timeframe: "H1",
     autoSymbol: true,
     balance: 3000,
+    useAccountBalance: true,
     leverage: 10,
     riskPct: 3,
     atrPeriod: 14,
@@ -24,11 +25,12 @@
     collapsed: false,
   };
 
-  const TF = ["M15", "H1", "H4", "D1", "W1"];        // execution timeframe
+  const TF = ["M1", "M5", "M15", "M30", "H1", "H4", "D1", "W1"]; // execution timeframe
   const QUICK = ["EURUSD", "GBPUSD", "USDJPY", "AUDCAD", "BTCUSD", "ETHUSD"];
 
   let cfg = Object.assign({}, DEFAULTS);
-  let panel, bodyEl, mtfEl, resultEl, symInput, autoBtn, refreshTimer = null, loading = false;
+  let panel, bodyEl, acctEl, mtfEl, resultEl, symInput, autoBtn, balanceInput;
+  let refreshTimer = null, loading = false, lastAnalysis = null;
 
   // ── helpers ──────────────────────────────────────────────
   function fmtPrice(p) {
@@ -67,20 +69,18 @@
   // ── panel ────────────────────────────────────────────────
   function buildPanel() {
     panel = el("div", "mt5adv-panel");
-    if (cfg.x != null && cfg.y != null) {
-      panel.style.left = cfg.x + "px";
-      panel.style.top = cfg.y + "px";
-      panel.style.right = "auto";
-    }
+    applyPosition();
 
     const header = el("div", "mt5adv-header");
     header.appendChild(el("span", "mt5adv-title", "🧠 MT5 SMC Advisor"));
     header.appendChild(el("span", "mt5adv-spacer"));
+    const btnReset = el("button", "mt5adv-icon", "↺");
+    btnReset.title = "Скинути позицію вікна"; btnReset.onclick = () => resetPos();
     const btnMin = el("button", "mt5adv-icon", cfg.collapsed ? "▢" : "—");
     btnMin.title = "Згорнути"; btnMin.onclick = () => toggleCollapse();
     const btnClose = el("button", "mt5adv-icon", "✕");
     btnClose.title = "Закрити"; btnClose.onclick = () => { panel.style.display = "none"; };
-    header.appendChild(btnMin); header.appendChild(btnClose);
+    header.appendChild(btnReset); header.appendChild(btnMin); header.appendChild(btnClose);
     panel.appendChild(header);
     makeDraggable(header, panel);
 
@@ -111,6 +111,10 @@
       quickRow.appendChild(b);
     });
     bodyEl.appendChild(quickRow);
+
+    // account block (best-effort scrape from the MT5 tab)
+    acctEl = el("div", "mt5adv-acctwrap");
+    bodyEl.appendChild(acctEl);
 
     // execution timeframe
     const tfRow = el("div", "mt5adv-tf");
@@ -175,8 +179,11 @@
       let v = parseFloat(inp.value);
       if (isNaN(v)) { inp.value = cfg[key]; return; }
       v = Math.max(lo, Math.min(hi, v));
-      cfg[key] = v; inp.value = v; saveCfg(); refresh();
+      cfg[key] = v; inp.value = v;
+      if (key === "balance") cfg.useAccountBalance = false; // manual override
+      saveCfg(); refresh();
     };
+    if (key === "balance") balanceInput = inp;
     row.appendChild(inp);
     return row;
   }
@@ -241,12 +248,17 @@
     if (loading) return;
     loading = true;
     renderLoading();
+    renderAccount(); // reads balance from the tab before sizing
     try {
-      const resp = await chrome.runtime.sendMessage({ type: "fetchMTF", symbol: cfg.symbol });
+      const resp = await chrome.runtime.sendMessage({
+        type: "fetchMTF", symbol: cfg.symbol, execTF: cfg.timeframe,
+      });
       if (!resp || resp.error) { renderError((resp && resp.error) || "Немає відповіді"); return; }
       const a = window.MT5ADV.analyze(resp.byTF, cfg.timeframe, cfg);
+      lastAnalysis = a;
       renderMTF(a.mtf, a.overall, resp.source);
       renderExec(a.exec);
+      renderAccount(); // refresh position hints with the new bias
     } catch (e) {
       renderError(String(e.message || e));
     } finally {
@@ -348,6 +360,123 @@
     resultEl.appendChild(card);
   }
 
+  // ── window position (kept on-screen) ─────────────────────
+  function applyPosition() {
+    if (cfg.x == null || cfg.y == null) {
+      panel.style.left = "auto";
+      panel.style.right = "20px";
+      panel.style.top = "90px";
+      return;
+    }
+    const maxX = Math.max(0, window.innerWidth - 120);
+    const maxY = Math.max(0, window.innerHeight - 80);
+    const x = Math.min(Math.max(0, cfg.x), maxX);
+    const y = Math.min(Math.max(0, cfg.y), maxY);
+    panel.style.right = "auto";
+    panel.style.left = x + "px";
+    panel.style.top = y + "px";
+  }
+  function resetPos() {
+    cfg.x = null; cfg.y = null; cfg.collapsed = false;
+    if (bodyEl) bodyEl.style.display = "block";
+    applyPosition();
+    saveCfg();
+  }
+
+  // ── best-effort read of the MT5 account/positions from the tab ──
+  function scrapeAccount() {
+    const text = (document.body && document.body.innerText) || "";
+    const alt = {
+      balance: ["Balance", "Баланс", "Баланс рахунку"],
+      equity: ["Equity", "Кошти", "Средства", "Эквити"],
+      margin: ["Margin", "Маржа"],
+      free: ["Free margin", "Free Margin", "Вільна маржа", "Свободная маржа"],
+      level: ["Level", "Рівень", "Уровень"],
+    };
+    function grab(list) {
+      for (const lab of list) {
+        const esc = lab.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const m = text.match(new RegExp(esc + "\\s*:?\\s*(-?[0-9][0-9\\s.,]*)", "i"));
+        if (m) {
+          let s = m[1].replace(/\s/g, "");
+          if (s.indexOf(".") < 0 && s.indexOf(",") >= 0) s = s.replace(",", ".");
+          s = s.replace(/,/g, "");
+          const v = parseFloat(s);
+          if (!isNaN(v)) return v;
+        }
+      }
+      return null;
+    }
+    const acc = {
+      balance: grab(alt.balance), equity: grab(alt.equity),
+      margin: grab(alt.margin), free: grab(alt.free), level: grab(alt.level),
+    };
+    return Object.values(acc).some((v) => v != null) ? acc : null;
+  }
+
+  function scrapePositions() {
+    const text = (document.body && document.body.innerText) || "";
+    const out = [];
+    text.split(/\n+/).forEach((ln) => {
+      if (!/\b(buy|sell)\b/i.test(ln)) return;
+      const m = ln.match(/\b([A-Z]{2,10}(?:\.[A-Z]+)?)\b[^\n]*?\b(buy|sell)\b[^\n]*?\b(\d+(?:\.\d+)?)\b/i);
+      if (!m) return;
+      if (out.length < 15) out.push({ symbol: m[1].toUpperCase(), side: m[2].toLowerCase(), volume: parseFloat(m[3]) });
+    });
+    return out;
+  }
+
+  function positionHint(p) {
+    if (lastAnalysis && p.symbol === cfg.symbol && lastAnalysis.overall) {
+      const b = lastAnalysis.overall;
+      const aligned = (p.side === "buy" && b === "bull") || (p.side === "sell" && b === "bear");
+      const against = (p.side === "buy" && b === "bear") || (p.side === "sell" && b === "bull");
+      if (aligned) return "за трендом → тримати";
+      if (against) return "проти HTF-ухилу → обережно / стоп";
+      return "ухил змішаний";
+    }
+    return "обери символ для оцінки";
+  }
+
+  function renderAccount() {
+    if (!acctEl) return;
+    acctEl.innerHTML = "";
+    const acc = scrapeAccount();
+    const pos = scrapePositions();
+
+    if (acc && acc.balance != null && cfg.useAccountBalance) {
+      cfg.balance = acc.balance;
+      if (balanceInput) balanceInput.value = acc.balance;
+    }
+
+    if (!acc && (!pos || !pos.length)) {
+      acctEl.appendChild(el("div", "mt5adv-acctnote",
+        "ℹ️ Не зчитав рахунок із вкладки (можливо, інша мова/розкладка). Баланс — з налаштувань."));
+      return;
+    }
+
+    const box = el("div", "mt5adv-acct");
+    box.appendChild(el("div", "mt5adv-sechead", "💼 Мій рахунок (з вкладки)"));
+    if (acc) {
+      if (acc.balance != null) box.appendChild(line("💰 Баланс", money(acc.balance)));
+      if (acc.equity != null) box.appendChild(line("📊 Еквіті", money(acc.equity)));
+      if (acc.free != null) box.appendChild(line("🆓 Вільна маржа", money(acc.free)));
+      if (acc.level != null) box.appendChild(line("📉 Рівень маржі", Math.round(acc.level) + "%"));
+    }
+    if (pos && pos.length) {
+      box.appendChild(el("div", "mt5adv-sechead", "Позиції"));
+      pos.forEach((p) => {
+        const row = el("div", "mt5adv-posrow");
+        row.appendChild(el("span", p.side === "buy" ? "mt5adv-pos-buy" : "mt5adv-pos-sell",
+          (p.side === "buy" ? "▲" : "▼") + " " + p.symbol));
+        row.appendChild(el("span", "mt5adv-dim", p.volume + " лот"));
+        row.appendChild(el("span", "mt5adv-poshint", positionHint(p)));
+        box.appendChild(row);
+      });
+    }
+    acctEl.appendChild(box);
+  }
+
   // ── dragging ─────────────────────────────────────────────
   function makeDraggable(handle, target) {
     let sx, sy, ox, oy, dragging = false;
@@ -394,5 +523,7 @@
     }
     refresh();
     setInterval(autoDetectTick, 2500);
+    setInterval(renderAccount, 6000);
+    window.addEventListener("resize", applyPosition);
   });
 })();
