@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -74,6 +74,24 @@ input group "=== Filters ==="
 input double InpMaxSpreadAtr   = 0.15;       // Max spread as fraction of ATR
 input bool   InpFridayFlat     = true;       // Close everything Friday evening
 input int    InpFridayHour     = 21;         // Friday flat hour (server time)
+
+input group "=== Entry quality (win-rate) ==="
+input bool   InpPullbackEntry  = true;       // Enter only on pullback to fast EMA
+input bool   InpUseSession     = true;       // Trade only during session hours
+input int    InpSessionStart   = 9;          // Session start hour (server time)
+input int    InpSessionEnd     = 22;         // Session end hour (server time)
+input bool   InpUseNewsFilter  = true;       // Skip entries around high-impact news
+input int    InpNewsBeforeMin  = 45;         // No entries N min before news
+input int    InpNewsAfterMin   = 30;         // No entries N min after news
+input double InpAtrSpikeMult   = 2.0;        // Skip if ATR > x * avg ATR (0 = off)
+input int    InpMaxPerCurrency = 1;          // Max positions sharing one currency
+input int    InpMaxLossStreak  = 3;          // Pause after N straight losses (0 = off)
+input double InpLossPauseHours = 4.0;        // Pause length (hours)
+
+input group "=== Partial take-profit ==="
+input bool   InpUsePartialTP   = true;       // Bank part at ~1R, SL to break-even
+input double InpPartialTrigAtr = 2.5;        // Trigger: profit >= ATR x (= SL mult => 1R)
+input double InpPartialPercent = 50.0;       // % of volume to close
 
 //--- Symbol table -------------------------------------------------------------
 struct SymInfo
@@ -177,6 +195,16 @@ void OnTimer()
       return;
      }
 
+   //--- entry gates (position management above keeps running regardless)
+   string gate = "";
+   if(!InSession())           gate = "⏰ Поза торговою сесією — нові входи вимкнено.";
+   else if(LossStreakPause()) gate = "🧯 Пауза після серії збитків — чекаємо.";
+   if(gate != "")
+     {
+      UpdateComment(gate);
+      return;
+     }
+
    //--- collect candidates
    Candidate cands[];
    int nc = 0;
@@ -191,6 +219,8 @@ void OnTimer()
       int dir; double score, atr;
       if(!ScoreSymbol(i, dir, score, atr)) continue;
       if(score < InpMinScore) continue;
+      if(AtrSpike(i, atr)) continue;      // chaotic volatility — signals unreliable
+      if(!PullbackOK(i, dir)) continue;   // wait for a pullback entry, don't chase
 
       cands[nc].idx = i; cands[nc].dir = dir; cands[nc].score = score; cands[nc].atr = atr;
       nc++;
@@ -210,6 +240,9 @@ void OnTimer()
    int open = CountPositions();
    for(int k = 0; k < nc && open < InpMaxPositions; k++)
      {
+      string csym = g_syms[cands[k].idx].name;
+      if(CurrencyBusy(csym)) continue;    // correlation guard (one currency = one bet)
+      if(NewsNearby(csym))   continue;    // high-impact news nearby — stand aside
       if(OpenPosition(cands[k].idx, cands[k].dir, cands[k].atr, cands[k].score))
          open++;
      }
@@ -422,6 +455,33 @@ void ManagePositions()
       double bid = SymbolInfoDouble(sym, SYMBOL_BID);
       double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
 
+      //--- partial take-profit (~1R): bank part, SL to break-even
+      if(InpUsePartialTP)
+        {
+         string gv = "SCN_PT_" + (string)ticket;
+         if(!GlobalVariableCheck(gv))
+           {
+            double prof = (type == POSITION_TYPE_BUY) ? (bid - open) : (open - ask);
+            if(prof >= InpPartialTrigAtr * atr)
+              {
+               double vol    = PositionGetDouble(POSITION_VOLUME);
+               double minLot = SymbolInfoDouble(sym, SYMBOL_VOLUME_MIN);
+               double step   = SymbolInfoDouble(sym, SYMBOL_VOLUME_STEP);
+               double part   = vol * InpPartialPercent / 100.0;
+               if(step > 0) part = MathFloor(part / step) * step;
+               if(part >= minLot && (vol - part) >= minLot)
+                  trade.PositionClosePartial(ticket, part);
+               double be = NormalizeDouble(open, digits);
+               bool needBE = (type == POSITION_TYPE_BUY) ? (curSL < be)
+                                                         : (curSL == 0.0 || curSL > be);
+               if(needBE)
+                  trade.PositionModify(ticket, be, curTP);
+               GlobalVariableSet(gv, 1);
+               continue;   // trailing resumes on the next timer tick
+              }
+           }
+        }
+
       if(type == POSITION_TYPE_BUY)
         {
          double profit = bid - open;
@@ -612,6 +672,133 @@ void MarkRecentCloses()
          if(t > g_syms[si].lastClose) g_syms[si].lastClose = t;
         }
      }
+  }
+
+//+------------------------------------------------------------------+
+//| Session filter (entries only during liquid hours)                |
+//+------------------------------------------------------------------+
+bool InSession()
+  {
+   if(!InpUseSession) return(true);
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   if(InpSessionStart <= InpSessionEnd)
+      return(dt.hour >= InpSessionStart && dt.hour < InpSessionEnd);
+   return(dt.hour >= InpSessionStart || dt.hour < InpSessionEnd);
+  }
+
+//+------------------------------------------------------------------+
+//| Pullback entry: last closed bar touched fast EMA and resumed     |
+//+------------------------------------------------------------------+
+bool PullbackOK(int i, int dir)
+  {
+   if(!InpPullbackEntry) return(true);
+   double ef = Buf(g_syms[i].emaFastH);
+   if(ef == EMPTY_VALUE) return(false);
+   MqlRates r[];
+   if(CopyRates(g_syms[i].name, InpTF, 1, 1, r) < 1) return(false);
+   if(dir > 0) return(r[0].low <= ef && r[0].close > ef);
+   return(r[0].high >= ef && r[0].close < ef);
+  }
+
+//+------------------------------------------------------------------+
+//| Chaos filter: current ATR spiking vs its own average             |
+//+------------------------------------------------------------------+
+bool AtrSpike(int i, double atr)
+  {
+   if(InpAtrSpikeMult <= 0) return(false);
+   double a[];
+   int n = CopyBuffer(g_syms[i].atrH, 0, 1, 50, a);
+   if(n < 20) return(false);
+   double sum = 0;
+   for(int k = 0; k < n; k++) sum += a[k];
+   double avg = sum / n;
+   return(avg > 0 && atr > InpAtrSpikeMult * avg);
+  }
+
+//+------------------------------------------------------------------+
+//| Correlation guard: limit positions sharing one currency          |
+//+------------------------------------------------------------------+
+bool CurrencyBusy(string sym)
+  {
+   if(InpMaxPerCurrency <= 0) return(false);
+   string b = SymbolInfoString(sym, SYMBOL_CURRENCY_BASE);
+   string q = SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT);
+   int cb = 0, cq = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+     {
+      ulong t = PositionGetTicket(i);
+      if(t == 0) continue;
+      if(PositionGetInteger(POSITION_MAGIC) != InpMagic) continue;
+      string ps = PositionGetString(POSITION_SYMBOL);
+      string pb = SymbolInfoString(ps, SYMBOL_CURRENCY_BASE);
+      string pq = SymbolInfoString(ps, SYMBOL_CURRENCY_PROFIT);
+      if(b != "" && (pb == b || pq == b)) cb++;
+      if(q != "" && (pb == q || pq == q)) cq++;
+     }
+   return(cb >= InpMaxPerCurrency || cq >= InpMaxPerCurrency);
+  }
+
+//+------------------------------------------------------------------+
+//| News filter: high-impact calendar events near now                |
+//| (calendar is unavailable in the Strategy Tester -> no blocking)  |
+//+------------------------------------------------------------------+
+bool NewsNearby(string sym)
+  {
+   if(!InpUseNewsFilter) return(false);
+   string curs[2];
+   curs[0] = SymbolInfoString(sym, SYMBOL_CURRENCY_BASE);
+   curs[1] = SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT);
+   datetime from = TimeCurrent() - (datetime)(InpNewsAfterMin * 60);
+   datetime to   = TimeCurrent() + (datetime)(InpNewsBeforeMin * 60);
+   for(int c = 0; c < 2; c++)
+     {
+      if(curs[c] == "") continue;
+      if(c == 1 && curs[1] == curs[0]) continue;
+      MqlCalendarValue vals[];
+      ResetLastError();
+      if(!CalendarValueHistory(vals, from, to, NULL, curs[c]))
+         continue;
+      for(int k = 0; k < ArraySize(vals); k++)
+        {
+         MqlCalendarEvent ev;
+         if(!CalendarEventById(vals[k].event_id, ev)) continue;
+         if(ev.importance == CALENDAR_IMPORTANCE_HIGH)
+            return(true);
+        }
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Losing-streak pause                                              |
+//+------------------------------------------------------------------+
+bool LossStreakPause()
+  {
+   if(InpMaxLossStreak <= 0) return(false);
+   datetime from = TimeCurrent() - 7 * 86400;
+   if(!HistorySelect(from, TimeCurrent() + 60)) return(false);
+   int n = HistoryDealsTotal();
+   int streak = 0;
+   datetime lastLoss = 0;
+   for(int i = n - 1; i >= 0; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0) continue;
+      if(HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic) continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      double pl = HistoryDealGetDouble(d, DEAL_PROFIT) +
+                  HistoryDealGetDouble(d, DEAL_SWAP) +
+                  HistoryDealGetDouble(d, DEAL_COMMISSION);
+      if(pl < 0)
+        {
+         streak++;
+         if(lastLoss == 0) lastLoss = (datetime)HistoryDealGetInteger(d, DEAL_TIME);
+        }
+      else
+         break;
+     }
+   return(streak >= InpMaxLossStreak && lastLoss > 0 &&
+          (TimeCurrent() - lastLoss) < (datetime)(InpLossPauseHours * 3600));
   }
 
 //+------------------------------------------------------------------+
