@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.20"
+#property version   "1.30"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -60,12 +60,13 @@ input double InpMaxDailyLoss   = 3.0;        // Daily loss limit % (0 = off)
 input group "=== Stops / Exits ==="
 input int    InpAtrPeriod      = 14;         // ATR period
 input double InpSlAtrMult      = 2.5;        // Stop-Loss = ATR x
-input double InpTpAtrMult      = 0.0;        // Take-Profit = ATR x (0 = trend/trailing exit)
+input double InpTpAtrMult      = 6.0;        // Take-Profit = ATR x (0 = trend/trailing exit)
 input bool   InpUseTrailing    = true;       // ATR trailing stop
-input double InpTrailStartAtr  = 1.2;        // Start trailing after profit >= ATR x
-input double InpTrailAtr       = 2.0;        // Trailing distance = ATR x
+input double InpTrailStartAtr  = 3.5;        // Start trailing after profit >= ATR x
+input double InpTrailAtr       = 2.5;        // Trailing distance = ATR x
 input bool   InpUseBreakEven   = true;       // Move SL to break-even
-input double InpBreakEvenAtr   = 1.0;        // ...after profit >= ATR x
+input double InpBreakEvenAtr   = 2.5;        // ...after profit >= ATR x (>= partial TP!)
+input double InpBreakEvenLock  = 0.3;        // Lock this much ATR of profit at break-even
 input bool   InpExitOnFlip     = true;       // Close when trend flips
 input double InpMaxHoldHours   = 72.0;       // Hard max holding time (hours, 72 = 3 days)
 input int    InpCooldownMin    = 60;         // Cooldown after closing on a symbol (min)
@@ -527,7 +528,9 @@ void ManagePositions()
                if(step > 0) part = MathFloor(part / step) * step;
                if(part >= minLot && (vol - part) >= minLot)
                   trade.PositionClosePartial(ticket, part);
-               double be = NormalizeDouble(open, digits);
+               double be = NormalizeDouble(
+                  (type == POSITION_TYPE_BUY) ? open + InpBreakEvenLock * atr
+                                              : open - InpBreakEvenLock * atr, digits);
                bool needBE = (type == POSITION_TYPE_BUY) ? (curSL < be)
                                                          : (curSL == 0.0 || curSL > be);
                if(needBE)
@@ -542,8 +545,9 @@ void ManagePositions()
         {
          double profit = bid - open;
          double newSL  = curSL;
-         if(InpUseBreakEven && profit >= InpBreakEvenAtr * atr && (curSL == 0.0 || curSL < open))
-            newSL = open;
+         double beBuy = open + InpBreakEvenLock * atr;
+         if(InpUseBreakEven && profit >= InpBreakEvenAtr * atr && (curSL == 0.0 || curSL < beBuy))
+            newSL = beBuy;
          if(InpUseTrailing && profit >= InpTrailStartAtr * atr)
            {
             double t = bid - InpTrailAtr * atr;
@@ -557,8 +561,9 @@ void ManagePositions()
         {
          double profit = open - ask;
          double newSL  = curSL;
-         if(InpUseBreakEven && profit >= InpBreakEvenAtr * atr && (curSL == 0.0 || curSL > open))
-            newSL = open;
+         double beSell = open - InpBreakEvenLock * atr;
+         if(InpUseBreakEven && profit >= InpBreakEvenAtr * atr && (curSL == 0.0 || curSL > beSell))
+            newSL = beSell;
          if(InpUseTrailing && profit >= InpTrailStartAtr * atr)
            {
             double t = ask + InpTrailAtr * atr;
