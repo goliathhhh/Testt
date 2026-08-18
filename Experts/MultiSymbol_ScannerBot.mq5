@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.10"
+#property version   "1.20"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -87,6 +87,19 @@ input double InpAtrSpikeMult   = 2.0;        // Skip if ATR > x * avg ATR (0 = o
 input int    InpMaxPerCurrency = 1;          // Max positions sharing one currency
 input int    InpMaxLossStreak  = 3;          // Pause after N straight losses (0 = off)
 input double InpLossPauseHours = 4.0;        // Pause length (hours)
+
+input group "=== Counter-trend protection ==="
+input bool   InpRequireSlope   = true;       // Slow EMA must slope in trade direction
+input int    InpSlopeBars      = 5;          // Slope measured over N bars
+input bool   InpPriceSideOnly  = true;       // Last close must be on the correct side of BOTH EMAs
+input bool   InpBlockReversal  = true;       // Block entry against a strong recent impulse
+input double InpReversalAtr    = 2.5;        // Impulse = move >= ATR x over InpSlopeBars
+
+input group "=== Martingale (recovery sizing) ==="
+input bool   InpUseMartingale  = true;       // Increase lot after a loss on the same symbol
+input double InpMartingaleMult = 1.6;        // Lot multiplier per losing step
+input int    InpMartingaleMax  = 3;          // Max martingale steps (hard cap)
+input double InpMartingaleStop = 15.0;       // Kill switch: stop all trading at % equity drawdown
 
 input group "=== Partial take-profit ==="
 input bool   InpUsePartialTP   = true;       // Bank part at ~1R, SL to break-even
@@ -192,6 +205,16 @@ void OnTimer()
          g_dailyStopLogged = true;
         }
       UpdateComment("⛔ Денний ліміт збитку — нові угоди до завтра не відкриваються.");
+      return;
+     }
+
+   //--- emergency brake: equity drawdown (mainly guards the martingale)
+   if(EquityKillSwitch())
+     {
+      CloseAllByMagic("equity kill switch");
+      UpdateComment(StringFormat(
+         "🛑 АВАРІЙНИЙ СТОП: просадка >= %.1f%% від піку.\nТоргівля зупинена. Зніми й причепи бота знову, щоб продовжити.",
+         InpMartingaleStop));
       return;
      }
 
@@ -358,6 +381,39 @@ bool ScoreSymbol(int i, int &dir, double &score, double &atr)
    if(efh != EMPTY_VALUE && esh != EMPTY_VALUE)
       htfDir = (efh > esh) ? 1 : (efh < esh ? -1 : 0);
    if(InpRequireHTF && htfDir != dir) return(false);
+
+   //--- counter-trend protection ---------------------------------------------
+   // EMA crossovers lag: after a sharp V-reversal the fast/slow relationship
+   // still points the old way, which is how the bot ends up selling into a
+   // fresh rally. These three guards require the CURRENT price action to
+   // agree with the direction before an entry is allowed.
+   MqlRates rr[];
+   ArraySetAsSeries(rr, true);
+   int need = MathMax(InpSlopeBars + 2, 3);
+   if(CopyRates(g_syms[i].name, InpTF, 1, need, rr) < need) return(false);
+   double lastClose = rr[0].close;
+
+   if(InpPriceSideOnly)
+     {
+      if(dir > 0 && !(lastClose > ef && lastClose > es)) return(false);
+      if(dir < 0 && !(lastClose < ef && lastClose < es)) return(false);
+     }
+
+   if(InpRequireSlope)
+     {
+      double esPast = Buf(g_syms[i].emaSlowH, 1 + InpSlopeBars);
+      if(esPast == EMPTY_VALUE) return(false);
+      if(dir > 0 && es <= esPast) return(false);   // slow EMA not rising
+      if(dir < 0 && es >= esPast) return(false);   // slow EMA not falling
+     }
+
+   if(InpBlockReversal && InpReversalAtr > 0)
+     {
+      double move = rr[0].close - rr[InpSlopeBars].close;
+      // a strong impulse AGAINST the intended direction = reversal in progress
+      if(dir > 0 && move <= -InpReversalAtr * atr) return(false);
+      if(dir < 0 && move >=  InpReversalAtr * atr) return(false);
+     }
 
    //--- score: trend strength + EMA separation in ATR units + HTF bonus
    double sep = MathAbs(ef - es) / atr;
@@ -598,6 +654,20 @@ double CalcLot(string sym, double slDist, ENUM_ORDER_TYPE type, double price)
         }
      }
 
+   //--- martingale: scale up after consecutive losses on THIS symbol.
+   // Capped by InpMartingaleMax and still subject to the free-margin fit
+   // below, so it cannot request a position the account cannot carry.
+   if(InpUseMartingale && InpMartingaleMult > 1.0)
+     {
+      int steps = MathMin(SymbolLossStreak(sym), InpMartingaleMax);
+      if(steps > 0)
+        {
+         lot *= MathPow(InpMartingaleMult, steps);
+         PrintFormat("%s: martingale step %d -> lot x%.2f", sym, steps,
+                     MathPow(InpMartingaleMult, steps));
+        }
+     }
+
    double freeMargin = AccountInfoDouble(ACCOUNT_MARGIN_FREE);
    double marginReq = 0.0;
    if(OrderCalcMargin(type, sym, lot, price, marginReq) && marginReq > 0)
@@ -767,6 +837,44 @@ bool NewsNearby(string sym)
         }
      }
    return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Consecutive losing closes on one symbol (drives the martingale)  |
+//+------------------------------------------------------------------+
+int SymbolLossStreak(string sym)
+  {
+   datetime from = TimeCurrent() - 14 * 86400;
+   if(!HistorySelect(from, TimeCurrent() + 60)) return(0);
+   int streak = 0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0) continue;
+      if(HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic) continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      if(HistoryDealGetString(d, DEAL_SYMBOL) != sym) continue;
+      double pl = HistoryDealGetDouble(d, DEAL_PROFIT) +
+                  HistoryDealGetDouble(d, DEAL_SWAP) +
+                  HistoryDealGetDouble(d, DEAL_COMMISSION);
+      if(pl < 0) streak++;
+      else break;              // a win resets the ladder
+     }
+   return(streak);
+  }
+
+//+------------------------------------------------------------------+
+//| Equity kill switch — the martingale's safety net                 |
+//+------------------------------------------------------------------+
+bool EquityKillSwitch()
+  {
+   if(InpMartingaleStop <= 0) return(false);
+   double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+   string gv = "SCN_PEAK_EQ";
+   double peak = GlobalVariableCheck(gv) ? GlobalVariableGet(gv) : eq;
+   if(eq > peak) { peak = eq; GlobalVariableSet(gv, peak); }
+   if(peak <= 0) return(false);
+   return((peak - eq) / peak * 100.0 >= InpMartingaleStop);
   }
 
 //+------------------------------------------------------------------+
