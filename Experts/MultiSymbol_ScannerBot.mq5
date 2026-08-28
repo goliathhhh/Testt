@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.30"
+#property version   "1.40"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -87,7 +87,8 @@ input int    InpNewsAfterMin   = 30;         // No entries N min after news
 input double InpAtrSpikeMult   = 2.0;        // Skip if ATR > x * avg ATR (0 = off)
 input int    InpMaxPerCurrency = 1;          // Max positions sharing one currency
 input int    InpMaxLossStreak  = 3;          // Pause after N straight losses (0 = off)
-input double InpLossPauseHours = 4.0;        // Pause length (hours)
+input double InpLossPauseHours = 12.0;       // Pause length (hours)
+input int    InpMaxDailyTrades = 6;          // Max NEW positions per day (0 = off)
 
 input group "=== Counter-trend protection ==="
 input bool   InpRequireSlope   = true;       // Slow EMA must slope in trade direction
@@ -135,6 +136,34 @@ double    g_dayStartBal = 0.0;
 int       g_lastDay     = -1;
 bool      g_dailyStopLogged = false;
 
+//--- single-instance lock -----------------------------------------------------
+// Several copies of this EA on several charts would each see "no position yet"
+// in the same second and all fire the same trade, multiplying the loss.
+// Only the instance holding the lock is allowed to trade.
+#define GV_OWNER "SCN_OWNER_CHART"
+#define GV_BEAT  "SCN_OWNER_BEAT"
+#define OWNER_TIMEOUT 120          // seconds before a silent owner is replaced
+
+long      g_chartId = 0;
+bool      g_isOwner = false;
+
+//+------------------------------------------------------------------+
+//| Try to become the one trading instance                           |
+//+------------------------------------------------------------------+
+bool ClaimOwnership()
+  {
+   double owner = GlobalVariableCheck(GV_OWNER) ? GlobalVariableGet(GV_OWNER) : 0.0;
+   double beat  = GlobalVariableCheck(GV_BEAT)  ? GlobalVariableGet(GV_BEAT)  : 0.0;
+   double now   = (double)TimeCurrent();
+
+   if(owner != 0.0 && owner != (double)g_chartId && (now - beat) < OWNER_TIMEOUT)
+      return(false);                       // another live instance owns it
+
+   GlobalVariableSet(GV_OWNER, (double)g_chartId);
+   GlobalVariableSet(GV_BEAT, now);
+   return(true);
+  }
+
 //+------------------------------------------------------------------+
 int OnInit()
   {
@@ -143,6 +172,12 @@ int OnInit()
       Print("ERROR: Fast EMA must be shorter than slow EMA.");
       return(INIT_PARAMETERS_INCORRECT);
      }
+
+   g_chartId = ChartID();
+   g_isOwner = ClaimOwnership();
+   if(!g_isOwner)
+      Print("WARNING: another ScannerBot instance is already trading. "
+            "This copy stays PASSIVE (remove it from this chart).");
 
    if(!BuildSymbolTable())
      {
@@ -169,6 +204,11 @@ void OnDeinit(const int reason)
   {
    EventKillTimer();
    Comment("");
+   if(g_isOwner)                       // hand the lock over to another instance
+     {
+      GlobalVariableSet(GV_OWNER, 0.0);
+      GlobalVariableSet(GV_BEAT, 0.0);
+     }
    for(int i = 0; i < ArraySize(g_syms); i++)
      {
       if(g_syms[i].emaFastH  != INVALID_HANDLE) IndicatorRelease(g_syms[i].emaFastH);
@@ -186,6 +226,20 @@ void OnTick()  { /* work is done in OnTimer */ }
 //+------------------------------------------------------------------+
 void OnTimer()
   {
+   //--- only one instance may trade; the rest sit idle
+   if(!g_isOwner)
+     {
+      g_isOwner = ClaimOwnership();
+      if(!g_isOwner)
+        {
+         Comment("=== MultiSymbol ScannerBot ===\n"
+                 "⏸ ПАСИВНА КОПІЯ — торгує інший екземпляр бота.\n"
+                 "Зніми цю копію з графіка.");
+         return;
+        }
+     }
+   GlobalVariableSet(GV_BEAT, (double)TimeCurrent());   // heartbeat
+
    CheckNewDay();
    MarkRecentCloses();
    ManagePositions();
@@ -222,7 +276,10 @@ void OnTimer()
    //--- entry gates (position management above keeps running regardless)
    string gate = "";
    if(!InSession())           gate = "⏰ Поза торговою сесією — нові входи вимкнено.";
-   else if(LossStreakPause()) gate = "🧯 Пауза після серії збитків — чекаємо.";
+   else if(LossStreakPause()) gate = StringFormat("🧯 %d збитки поспіль — пауза %.0f год.",
+                                                  InpMaxLossStreak, InpLossPauseHours);
+   else if(InpMaxDailyTrades > 0 && TradesOpenedToday() >= InpMaxDailyTrades)
+      gate = StringFormat("📉 Денний ліміт угод (%d) вичерпано.", InpMaxDailyTrades);
    if(gate != "")
      {
       UpdateComment(gate);
@@ -602,6 +659,11 @@ void CloseAllByMagic(string reason)
 bool OpenPosition(int i, int dir, double atr, double score)
   {
    string sym = g_syms[i].name;
+
+   //--- last-moment duplicate guard (state can change between scan and send)
+   if(HasPosition(sym)) return(false);
+   if(CountPositions() >= InpMaxPositions) return(false);
+
    int    digits = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
    double ask = SymbolInfoDouble(sym, SYMBOL_ASK);
    double bid = SymbolInfoDouble(sym, SYMBOL_BID);
@@ -880,6 +942,26 @@ bool EquityKillSwitch()
    if(eq > peak) { peak = eq; GlobalVariableSet(gv, peak); }
    if(peak <= 0) return(false);
    return((peak - eq) / peak * 100.0 >= InpMartingaleStop);
+  }
+
+//+------------------------------------------------------------------+
+//| Positions opened today by this EA (daily trade cap)              |
+//+------------------------------------------------------------------+
+int TradesOpenedToday()
+  {
+   MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
+   dt.hour = 0; dt.min = 0; dt.sec = 0;
+   datetime dayStart = StructToTime(dt);
+   if(!HistorySelect(dayStart, TimeCurrent() + 60)) return(0);
+   int n = 0;
+   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+     {
+      ulong d = HistoryDealGetTicket(i);
+      if(d == 0) continue;
+      if(HistoryDealGetInteger(d, DEAL_MAGIC) != InpMagic) continue;
+      if(HistoryDealGetInteger(d, DEAL_ENTRY) == DEAL_ENTRY_IN) n++;
+     }
+   return(n);
   }
 
 //+------------------------------------------------------------------+
