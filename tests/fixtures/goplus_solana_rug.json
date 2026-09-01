@@ -1,0 +1,23 @@
+{
+  "code": 1,
+  "message": "OK",
+  "result": {
+    "RUGmint1111111111111111111111111111111111111": {
+      "mintable": {"authority": ["4kFn1ZxKq"], "status": "1"},
+      "freezable": {"authority": ["4kFn1ZxKq"], "status": "1"},
+      "metadata_mutable": {"metadata_upgrade_authority": ["4kFn1ZxKq"], "status": "1"},
+      "transfer_hook": {"authority": [], "status": "0"},
+      "transfer_fee": {},
+      "holder_count": "38",
+      "total_supply": "1000000000",
+      "holders": [
+        {"account": "PoolAcct1", "percent": "0.62", "tag": "Raydium LP pool", "is_locked": 0},
+        {"account": "DevWallet1", "percent": "0.19", "tag": "", "is_locked": 0},
+        {"account": "Wallet2", "percent": "0.07", "tag": "", "is_locked": 0}
+      ],
+      "lp_holders": [
+        {"address": "LpHolder1", "percent": "1.0", "is_locked": 0, "tag": ""}
+      ]
+    }
+  }
+}

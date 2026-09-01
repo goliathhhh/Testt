@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "1.0.0",
+  "pairs": [
+    {
+      "chainId": "solana",
+      "dexId": "raydium",
+      "url": "https://dexscreener.com/solana/pair1",
+      "pairAddress": "PoolAddr1",
+      "baseToken": {"address": "CLEANmint111111111111111111111111111111111111", "name": "Clean Coin", "symbol": "CLEAN"},
+      "quoteToken": {"address": "So11111111111111111111111111111111111111112", "symbol": "SOL"},
+      "priceUsd": "0.00042",
+      "txns": {"h24": {"buys": 1840, "sells": 1602}},
+      "volume": {"h24": 412000, "h6": 120000, "h1": 22000},
+      "priceChange": {"h1": 3.2, "h24": 61.5},
+      "liquidity": {"usd": 128000, "base": 1, "quote": 1},
+      "fdv": 1980000,
+      "marketCap": 1980000,
+      "pairCreatedAt": 1
+    }
+  ]
+}

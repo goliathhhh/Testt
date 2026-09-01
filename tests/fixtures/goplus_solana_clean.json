@@ -1,0 +1,24 @@
+{
+  "code": 1,
+  "message": "OK",
+  "result": {
+    "CLEANmint111111111111111111111111111111111111": {
+      "mintable": {"authority": [], "status": "0"},
+      "freezable": {"authority": [], "status": "0"},
+      "metadata_mutable": {"metadata_upgrade_authority": [], "status": "0"},
+      "transfer_hook": {"authority": [], "status": "0"},
+      "transfer_fee": {},
+      "holder_count": "2140",
+      "holders": [
+        {"account": "PoolAcct9", "percent": "0.41", "tag": "Raydium LP pool", "is_locked": 0},
+        {"account": "W1", "percent": "0.021", "tag": "", "is_locked": 0},
+        {"account": "W2", "percent": "0.018", "tag": "", "is_locked": 0},
+        {"account": "W3", "percent": "0.015", "tag": "", "is_locked": 0}
+      ],
+      "lp_holders": [
+        {"address": "1nc1nerator11111111111111111111111111111111", "percent": "0.985", "is_locked": 0, "tag": "burn"},
+        {"address": "Other", "percent": "0.015", "is_locked": 0, "tag": ""}
+      ]
+    }
+  }
+}
