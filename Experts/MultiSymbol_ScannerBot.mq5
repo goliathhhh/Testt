@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.40"
+#property version   "1.50"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -54,12 +54,14 @@ input group "=== Risk ==="
 input double InpRiskPercent    = 1.0;        // Risk % of balance per trade
 input int    InpMaxPositions   = 3;          // Max simultaneous positions (symbols)
 input double InpMaxMarginUse   = 25.0;       // Max % of free margin per position
-input double InpMaxLot         = 5.0;        // Hard lot cap
+input double InpMaxLot         = 1.0;        // Hard lot cap
 input double InpMaxDailyLoss   = 3.0;        // Daily loss limit % (0 = off)
 
 input group "=== Stops / Exits ==="
 input int    InpAtrPeriod      = 14;         // ATR period
 input double InpSlAtrMult      = 2.5;        // Stop-Loss = ATR x
+input double InpMinStopSpread  = 10.0;       // Min SL distance = x current spread (0 = off)
+input int    InpMinStopPoints  = 150;        // Absolute min SL distance in points (0 = off)
 input double InpTpAtrMult      = 6.0;        // Take-Profit = ATR x (0 = trend/trailing exit)
 input bool   InpUseTrailing    = true;       // ATR trailing stop
 input double InpTrailStartAtr  = 3.5;        // Start trailing after profit >= ATR x
@@ -671,6 +673,19 @@ bool OpenPosition(int i, int dir, double atr, double score)
    if(price <= 0) return(false);
 
    double slDist = InpSlAtrMult * atr;
+
+   // In quiet markets ATR collapses, the stop becomes a few pips wide and the
+   // risk formula then inflates the lot enormously — the bot ends up trading
+   // spread noise with an oversized position. Enforce a sane floor.
+   double point = SymbolInfoDouble(sym, SYMBOL_POINT);
+   if(InpMinStopSpread > 0)
+     {
+      double spread = (double)SymbolInfoInteger(sym, SYMBOL_SPREAD) * point;
+      slDist = MathMax(slDist, InpMinStopSpread * spread);
+     }
+   if(InpMinStopPoints > 0)
+      slDist = MathMax(slDist, InpMinStopPoints * point);
+
    double tpDist = InpTpAtrMult * atr;
    double sl = (dir > 0) ? price - slDist : price + slDist;
    double tp = 0.0;
