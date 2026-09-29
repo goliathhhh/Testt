@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.50"
+#property version   "1.51"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -192,6 +192,19 @@ int OnInit()
    trade.SetMarginMode();
 
    g_dayStartBal = AccountInfoDouble(ACCOUNT_BALANCE);
+
+   //--- the kill-switch peak lives in a terminal global variable, which
+   // survives removing the EA. Without this reset the "re-attach to resume"
+   // advice never worked: the old peak stayed and the bot stopped again.
+   if(g_isOwner)
+     {
+      double eq = AccountInfoDouble(ACCOUNT_EQUITY);
+      if(GlobalVariableCheck("SCN_PEAK_EQ"))
+         PrintFormat("Kill-switch peak reset: %.2f -> %.2f",
+                     GlobalVariableGet("SCN_PEAK_EQ"), eq);
+      GlobalVariableSet("SCN_PEAK_EQ", eq);
+     }
+
    MqlDateTime dt; TimeToStruct(TimeCurrent(), dt);
    g_lastDay = dt.day;
 
