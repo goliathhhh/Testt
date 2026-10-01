@@ -30,7 +30,7 @@ wget -O "$EXPDIR/MultiSymbol_ScannerBot.mq5" \
 
 | Параметр | Замовч. | Опис |
 |---|---|---|
-| `InpSymbols` | AUTO | AUTO = усі з Market Watch (до 20), або список: `EURUSD,GBPUSD,XAUUSD` |
+| `InpSymbols` | USDJPY,USTEC | Список символів. `AUTO` = усі з Market Watch (до 20) |
 | `InpMinScore` | 30 | Поріг входу (вище = рідше, але якісніше) |
 | `InpAdxMin` | 22 | Мінімальна сила тренду |
 | `InpMaxPositions` | 3 | Одночасних позицій (різні символи) |

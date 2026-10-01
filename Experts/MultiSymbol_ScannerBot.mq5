@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.60"
+#property version   "1.70"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -37,7 +37,7 @@ input string InpComment        = "Scanner";  // Order comment
 input int    InpSlippage       = 20;         // Max slippage (points)
 
 input group "=== Symbols ==="
-input string InpSymbols        = "AUTO";     // "AUTO" = Market Watch, or comma list (EURUSD,GBPUSD,...)
+input string InpSymbols        = "USDJPY,USTEC"; // "AUTO" = Market Watch, or comma list
 input int    InpMaxScan        = 20;         // Max symbols to scan (AUTO mode)
 
 input group "=== Signal / Scoring ==="
