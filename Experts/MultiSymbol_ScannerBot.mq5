@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.50"
+#property version   "1.60"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -61,7 +61,8 @@ input group "=== Stops / Exits ==="
 input int    InpAtrPeriod      = 14;         // ATR period
 input double InpSlAtrMult      = 2.5;        // Stop-Loss = ATR x
 input double InpMinStopSpread  = 10.0;       // Min SL distance = x current spread (0 = off)
-input int    InpMinStopPoints  = 150;        // Absolute min SL distance in points (0 = off)
+input int    InpMinStopPoints  = 0;          // Min SL distance in points (0 = off, forex only)
+input double InpMinStopPct     = 0.08;       // Min SL distance as % of price (works for FX+indices)
 input double InpTpAtrMult      = 6.0;        // Take-Profit = ATR x (0 = trend/trailing exit)
 input bool   InpUseTrailing    = true;       // ATR trailing stop
 input double InpTrailStartAtr  = 3.5;        // Start trailing after profit >= ATR x
@@ -686,6 +687,11 @@ bool OpenPosition(int i, int dir, double atr, double score)
    if(InpMinStopPoints > 0)
       slDist = MathMax(slDist, InpMinStopPoints * point);
 
+   // Percent-of-price floor: scale-free, so one setting works for forex,
+   // indices (NAS100 at ~20000) and shares alike, unlike a points figure.
+   if(InpMinStopPct > 0)
+      slDist = MathMax(slDist, price * InpMinStopPct / 100.0);
+
    double tpDist = InpTpAtrMult * atr;
    double sl = (dir > 0) ? price - slDist : price + slDist;
    double tp = 0.0;
@@ -875,6 +881,10 @@ bool CurrencyBusy(string sym)
    if(InpMaxPerCurrency <= 0) return(false);
    string b = SymbolInfoString(sym, SYMBOL_CURRENCY_BASE);
    string q = SymbolInfoString(sym, SYMBOL_CURRENCY_PROFIT);
+   // Indices and shares report the same currency on both sides (e.g. NAS100 =
+   // USD/USD). They are not a currency bet, so the correlation rule, which
+   // would otherwise block every USD pair, does not apply to them.
+   if(b == q) return(false);
    int cb = 0, cq = 0;
    for(int i = PositionsTotal() - 1; i >= 0; i--)
      {
@@ -884,6 +894,7 @@ bool CurrencyBusy(string sym)
       string ps = PositionGetString(POSITION_SYMBOL);
       string pb = SymbolInfoString(ps, SYMBOL_CURRENCY_BASE);
       string pq = SymbolInfoString(ps, SYMBOL_CURRENCY_PROFIT);
+      if(pb == pq) continue;                      // open index/share position
       if(b != "" && (pb == b || pq == b)) cb++;
       if(q != "" && (pb == q || pq == q)) cq++;
      }
