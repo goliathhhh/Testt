@@ -25,7 +25,7 @@
 //|  the strongest trends available. Test on DEMO.                    |
 //+------------------------------------------------------------------+
 #property copyright "MultiSymbol ScannerBot"
-#property version   "1.70"
+#property version   "1.80"
 #property strict
 
 #include <Trade/Trade.mqh>
@@ -48,6 +48,7 @@ input int    InpEmaSlow        = 48;         // Slow EMA
 input int    InpAdxPeriod      = 14;         // ADX period
 input double InpAdxMin         = 22.0;       // Min ADX (trend strength)
 input double InpMinScore       = 30.0;       // Min score to enter
+input string InpLongOnlySyms   = "USTEC";    // Symbols allowed to trade LONG only (comma list, "" = none)
 input bool   InpRequireHTF     = true;       // Require HTF direction agreement
 
 input group "=== Risk ==="
@@ -122,6 +123,7 @@ struct SymInfo
    int               adxH;
    int               atrH;
    datetime          lastClose;   // for cooldown
+   bool              longOnly;    // from InpLongOnlySyms
    bool              ok;
   };
 
@@ -384,6 +386,9 @@ bool BuildSymbolTable()
      {
       g_syms[i].name       = names[i];
       g_syms[i].lastClose  = 0;
+      g_syms[i].longOnly   = InList(names[i], InpLongOnlySyms);
+      if(g_syms[i].longOnly)
+         PrintFormat("%s: LONG-only mode", names[i]);
       g_syms[i].emaFastH   = iMA(names[i], InpTF,  InpEmaFast, 0, MODE_EMA, PRICE_CLOSE);
       g_syms[i].emaSlowH   = iMA(names[i], InpTF,  InpEmaSlow, 0, MODE_EMA, PRICE_CLOSE);
       g_syms[i].emaFastHtf = iMA(names[i], InpHTF, InpEmaFast, 0, MODE_EMA, PRICE_CLOSE);
@@ -400,6 +405,39 @@ bool BuildSymbolTable()
          PrintFormat("WARN: indicator handles failed for %s — skipped", names[i]);
      }
    return(true);
+  }
+
+//+------------------------------------------------------------------+
+//| Is sym in a comma-separated list (case-insensitive)?             |
+//+------------------------------------------------------------------+
+bool InList(string sym, string list)
+  {
+   string parts[];
+   int cnt = StringSplit(list, ',', parts);
+   string s = sym;
+   StringToUpper(s);
+   for(int k = 0; k < cnt; k++)
+     {
+      string p = parts[k];
+      StringTrimLeft(p); StringTrimRight(p); StringToUpper(p);
+      if(p != "" && p == s) return(true);
+     }
+   return(false);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom optimisation criterion (tester: "Custom max")             |
+//| Raw net profit rewards curve-fitting; this rewards an edge that  |
+//| holds over many trades and penalises drawdown instead.           |
+//+------------------------------------------------------------------+
+double OnTester()
+  {
+   double trades = TesterStatistics(STAT_TRADES);
+   double profit = TesterStatistics(STAT_PROFIT);
+   double pf     = TesterStatistics(STAT_PROFIT_FACTOR);
+   double ddPct  = TesterStatistics(STAT_EQUITY_DDREL_PERCENT);
+   if(trades < 50 || profit <= 0.0 || pf <= 1.0) return(0.0);
+   return((pf - 1.0) * MathSqrt(trades) * (1.0 - MathMin(ddPct, 100.0) / 100.0));
   }
 
 //+------------------------------------------------------------------+
@@ -428,6 +466,8 @@ bool ScoreSymbol(int i, int &dir, double &score, double &atr)
 
    dir = (ef > es) ? 1 : (ef < es ? -1 : 0);
    if(dir == 0) return(false);
+   // indices with a structural uptrend: shorts fight the long-run drift
+   if(dir < 0 && g_syms[i].longOnly) return(false);
    if(adx < InpAdxMin) return(false);
 
    //--- spread filter (relative to volatility)
